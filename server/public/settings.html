@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Inky Settings</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 20px;
+  }
+
+  h2 {
+    margin-top: 0;
+  }
+
+  .layout {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+
+  .left,
+  .right {
+    flex: 1;
+    min-width: 0;
+  }
+
+  input {
+    padding: 8px;
+    margin: 6px 0;
+  }
+
+  button {
+    padding: 8px 16px;
+    margin-top: 10px;
+  }
+
+  .status {
+    background: #f3f3f3;
+    padding: 10px;
+    margin-top: 20px;
+    font-size: 0.9em;
+  }
+
+  .row {
+    margin-bottom: 20px;
+  }
+
+  #thumbnails {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  #thumbnails img {
+    width: 100%;
+    height: auto;
+    border: 1px solid #ccc;
+    background: white;
+  }
+
+.thumb {
+  position: relative;
+}
+
+.thumb button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.thumb button:hover {
+  background: red;
+}
+
+  /* Mobile fallback */
+  @media (max-width: 800px) {
+    .layout {
+      flex-direction: column;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h2>Inky Display Settings</h2>
+
+<div class="layout">
+
+  <!-- LEFT PANEL -->
+  <div class="left">
+
+    <div class="row">
+      <label>RSS Feed URL</label>
+      <input id="rssUrl" placeholder="https://…" />
+    </div>
+
+    <div class="row">
+      <h3>Current RSS Preview</h3>
+      <div id="preview">Loading…</div>
+    </div>
+
+    <div class="row">
+      <h3>Scheduler Status</h3>
+      <div class="status" id="status">Loading…</div>
+    </div>
+
+    <div class="row">
+      <label>Display Mode</label><br>
+      <label><input type="radio" name="mode" value="rss"> RSS</label>
+      <label><input type="radio" name="mode" value="slideshow"> Slideshow</label>
+    </div>
+
+    <div class="row">
+      <label>Upload Image (Slideshow)</label><br>
+      <input type="file" id="image">
+      <button onclick="upload()">Upload</button>
+    </div>
+
+    <button onclick="save()">Save & Refresh</button>
+    <button onclick="refreshDisplay()">Refresh display now</button>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right">
+    <div id="slideshowPanel" style="display:none;">
+      <h3>Uploaded images</h3>
+      <div id="thumbnails"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function load() {
+  const settings = await fetch("/settings").then(r => r.json());
+
+  document.getElementById("rssUrl").value = settings.rssUrl || "";
+
+  if (settings.mode) {
+    const radio = document.querySelector(`input[name="mode"][value="${settings.mode}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  document
+    .querySelectorAll("input[name=mode]")
+    .forEach(r => r.addEventListener("change", updateSlideshowVisibility));
+
+  refreshStatus();
+  updateSlideshowVisibility();
+}
+
+async function save() {
+  const rssUrl = document.getElementById("rssUrl").value;
+  const modeInput = document.querySelector("input[name=mode]:checked");
+
+  if (!modeInput) {
+    alert("Please select a display mode");
+    return;
+  }
+
+  const mode = modeInput.value;
+
+  await fetch("/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rssUrl, mode })
+  });
+
+  //setTimeout(refreshStatus, 500);
+  await fetch("/refresh", { method: "POST" });
+}
+
+async function upload() {
+  const file = image.files[0];
+  if (!file) return alert("Choose an image");
+
+  const fd = new FormData();
+  fd.append("image", file);
+
+  await fetch("/upload", { method: "POST", body: fd });
+
+  alert("Image uploaded. Switch to slideshow mode to view it.");
+
+  updateSlideshowVisibility(); // refresh thumbnails if visible
+}
+
+async function refreshStatus() {
+  const status = await fetch("/status").then(r => r.json());
+
+  document.getElementById("status").innerHTML = `
+    Last run: ${status.lastRun || "never"}<br>
+    Last success: ${status.lastSuccess || "never"}<br>
+    Error: ${status.lastError || "none"}
+  `;
+
+  const url = document.getElementById("rssUrl").value;
+  if (!url) {
+    document.getElementById("preview").innerText = "No RSS URL set";
+    return;
+  }
+
+  const res = await fetch(`/rss-preview?url=${encodeURIComponent(url)}`);
+  const data = await res.json();
+
+  document.getElementById("preview").innerText =
+    data.title || "No preview available";
+}
+
+async function refreshDisplay() {
+  await fetch("/refresh", { method: "POST" });
+  setTimeout(refreshStatus, 500);
+}
+
+async function loadSlideshowThumbnails() {
+  const res = await fetch("/slideshow-list");
+  const images = await res.json();
+
+  const container = document.getElementById("thumbnails");
+  container.innerHTML = "";
+
+  if (!images.length) {
+    container.innerHTML = "<em>No images uploaded</em>";
+    return;
+  }
+
+  images.forEach(img => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "thumb";
+
+    const el = document.createElement("img");
+    el.src = img.url;
+    el.alt = img.name;
+
+    const del = document.createElement("button");
+    del.innerText = "✕";
+    del.title = "Delete image";
+
+    del.onclick = async () => {
+      if (!confirm(`Delete ${img.name}?`)) return;
+
+      await fetch(`/slideshow/${encodeURIComponent(img.name)}`, {
+        method: "DELETE"
+      });
+
+      loadSlideshowThumbnails();
+    };
+
+    wrapper.appendChild(el);
+    wrapper.appendChild(del);
+    container.appendChild(wrapper);
+  });
+
+}
+
+function updateSlideshowVisibility() {
+  const mode = document.querySelector("input[name=mode]:checked")?.value;
+  const panel = document.getElementById("slideshowPanel");
+
+  if (mode === "slideshow") {
+    panel.style.display = "block";
+    loadSlideshowThumbnails();
+  } else {
+    panel.style.display = "none";
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>

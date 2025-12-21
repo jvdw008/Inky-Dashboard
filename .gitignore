@@ -1,0 +1,17 @@
+# Node modules
+node_modules/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# E-ink display generated images (optional, can re-upload)
+display/slideshow/*.*
+
+# State files
+state/*.json
+
+# Any OS files
+.DS_Store
