@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Inky Settings</title>
 <style>
   body {
@@ -21,6 +22,7 @@
   }
 
   .left,
+  .mid,
   .right {
     flex: 1;
     min-width: 0;
@@ -38,7 +40,6 @@
 
   .status {
     background: #f3f3f3;
-    padding: 10px;
     margin-top: 20px;
     font-size: 0.9em;
   }
@@ -105,17 +106,111 @@
   opacity: 1;
 }
 
-  /* Mobile fallback */
-  @media (max-width: 800px) {
-    .layout {
-      flex-direction: column;
-    }
+.badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+.badge.live,
+.badge.online,
+.badge.connected {
+  background: #2ecc71;
+  color: #000;
+}
+
+.badge.cached {
+  background: #f1c40f;
+  color: #000;
+}
+
+.badge.unavailable,
+.badge.offline {
+  background: #e74c3c;
+  color: #fff;
+}
+
+.status-row span:nth-child(1) {
+  width: 60px;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+
+/* -----------------------------
+   Mobile / Portrait layout
+----------------------------- */
+@media (max-width: 800px) {
+
+  body {
+    padding: 12px;
   }
+
+  .layout {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .left,
+  .mid,
+  .right {
+    width: 100%;
+    background: #fafafa;
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+
+  h2 {
+    font-size: 1.4em;
+  }
+
+  h3 {
+    margin-top: 0;
+  }
+
+  input,
+  button {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  button {
+    margin-top: 8px;
+  }
+
+  /* Status rows stack vertically */
+  .status-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+
+  .status-row span:nth-child(1) {
+    width: auto;
+    font-weight: bold;
+  }
+
+  /* Thumbnails: bigger, fewer per row */
+  #thumbnails {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .thumb {
+    margin: 0;
+  }
+
+  .thumb button {
+    opacity: 1; /* Always visible on touch devices */
+  }
+}
+
 </style>
 </head>
 <body>
 
-<h2>Inky Display Settings</h2>
+<h2>Inky Settings Portal</h2>
 
 <div class="layout">
 
@@ -133,24 +228,43 @@
     </div>
 
     <div class="row">
-      <h3>Scheduler Status</h3>
-      <div class="status" id="status">Loading…</div>
-    </div>
-
-    <div class="row">
-      <label>Display Mode</label><br>
+      <h3>Display Mode</h3>
       <label><input type="radio" name="mode" value="rss"> RSS</label>
       <label><input type="radio" name="mode" value="slideshow"> Slideshow</label>
     </div>
 
     <div class="row">
-      <label>Upload Image (Slideshow)</label><br>
+      <h3>Upload Image (Slideshow)</h3>
       <input type="file" id="image">
       <button onclick="upload()">Upload</button>
     </div>
 
     <button onclick="save()">Save & Refresh</button>
     <button onclick="refreshDisplay()">Refresh display now</button>
+
+  </div>
+
+  <!-- MID PANEL -->
+  <div class="mid">
+    <div class="status-row">
+      <span>Network</span>
+      <span id="network-badge" class="badge">Unknown</span>
+    </div>
+
+    <div class="status-row">
+      <span>RSS</span>
+      <span id="rss-badge" class="badge">Unknown</span>
+    </div>
+
+    <div class="status-row">
+      <span>Joplin</span>
+      <span id="joplin-badge" class="badge">Unknown</span>
+    </div>
+
+    <div class="row">
+      <h3>Scheduler Status</h3>
+      <div class="status" id="status">Loading…</div>
+    </div>
 
   </div>
 
@@ -280,6 +394,29 @@ async function refreshStatus() {
       lastLiveImage = status.currentImage;
       loadSlideshowThumbnails();
     }
+
+    // Network status
+    if (status.network) {
+      const net = document.getElementById("network-badge");
+      net.textContent = status.network.status.toUpperCase();
+      net.className = `badge ${status.network.status === "online" ? "connected" : "unavailable"}`;
+    }
+
+    // RSS status
+    if (status.rss) {
+      const rss = document.getElementById("rss-badge");
+      rss.textContent = status.rss.status.toUpperCase();
+      rss.className = `badge ${status.rss.status === "live" ? "connected" : "unavailable"}`;
+    }
+
+    // Joplin status
+    if (status.joplin) {
+      const badge = document.getElementById("joplin-badge");
+      badge.textContent = status.joplin.status.toUpperCase();
+      badge.className = `badge ${status.joplin.status === "connected" ? "connected" : "unavailable"}`;
+    }
+
+
   } catch (err) {
     console.warn("Status sync failed:", err);
   }

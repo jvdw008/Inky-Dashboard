@@ -1,13 +1,15 @@
 const fs = require("fs");
 const path = require("path");
 
-const { fetchRSS } = require("./rssService");
-const { getTodaysNoteFromBackup } = require("./joplinService");
+const { fetchRSS, fetchRSSWithCache } = require("./rssService");
+const { getTodaysNoteFromBackupSafe } = require("./joplinService");
 
 // IMPORTANT: absolute, resolved path to display module
 const { renderHomepage } = require(
   path.resolve(__dirname, "..", "..", "display", "display")
 );
+
+const dns = require("dns").promises;
 
 let renderRequested = false;
 let isRendering = false;
@@ -25,6 +27,21 @@ let schedulerStatus = {
   currentTitle: null,
   currentRSS: null,
   currentImage: null,
+
+  joplin: {
+    status: "unknown", // connected | cached | unavailable
+    lastUpdate: null,
+  },
+
+  network: {
+    status: "unknown", // online | offline
+    lastCheck: null,
+  },
+
+  rss: {
+    status: "unknown", // live | cached | unavailable
+    lastUpdate: null,
+  },
 };
 
 /* -----------------------------
@@ -63,6 +80,15 @@ let tickRef = null;
 /* -----------------------------
    Public helpers
 ------------------------------ */
+
+async function checkNetwork() {
+  try {
+    await dns.lookup("google.com");
+    return "online";
+  } catch {
+    return "offline";
+  }
+}
 
 function refreshNow(options = {}) {
   if (options.image) {
@@ -127,8 +153,21 @@ function startScheduler() {
       const mode = readMode();
       console.log("[Scheduler] Initial mode:", mode);
 
-      const todos =
-        getTodaysNoteFromBackup({ baseBackupDir: "/mnt/joplin" }) || [];
+      const joplinResult = getTodaysNoteFromBackupSafe({
+        baseBackupDir: "/mnt/joplin",
+      });
+
+      const networkStatus = await checkNetwork();
+      schedulerStatus.network = {
+        status: networkStatus,
+        lastCheck: new Date(),
+      };
+
+      const todos = joplinResult.todos;
+      schedulerStatus.joplin = {
+        status: joplinResult.status,
+        lastUpdate: new Date(),
+      };
 
       const payload = {
         hostname: process.env.HOSTNAME || "inky.local",
@@ -184,14 +223,18 @@ function startScheduler() {
       ------------------------------ */
       } else {
         const rssUrl = process.env.RSS_FEED_URL;
-        const rss = (await fetchRSS(rssUrl)) || {
-          title: "",
-          text: "",
+        const rssResult = await fetchRSSWithCache(rssUrl);
+
+        payload.rss = rssResult.rss;
+
+        schedulerStatus.rss = {
+          status: rssResult.status,
+          lastUpdate: new Date(),
         };
 
-        payload.rss = rss;
-        schedulerStatus.currentTitle = rss.title || null;
-        schedulerStatus.currentRSS = rss;
+        schedulerStatus.currentTitle = rssResult.rss.title || null;
+        schedulerStatus.currentRSS = rssResult.rss;
+
       }
 
       console.log("[Scheduler] Payload → EPD:", payload);
