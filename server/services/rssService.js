@@ -4,6 +4,7 @@ const path = require("path");
 
 const parser = new Parser({ timeout: 15000 });
 const STATE_FILE = path.join(__dirname, "rssState.json");
+const RSS_CACHE_PATH = path.resolve(__dirname, "../state/rssCache.json");
 
 /* ---------- helpers ---------- */
 
@@ -28,6 +29,40 @@ function resetRssState() {
 }
 
 /* ---------- main service ---------- */
+async function fetchRSSWithCache(url) {
+  try {
+    console.log("[RSS] Fetching feed:", url);
+
+    const rss = await fetchRSS(url); // your existing fetch logic
+
+    fs.writeFileSync(RSS_CACHE_PATH, JSON.stringify(rss, null, 2));
+
+    return {
+      rss,
+      status: "live",
+    };
+
+  } catch (err) {
+    console.warn("[RSS] Fetch failed:", err.code || err.message);
+
+    if (fs.existsSync(RSS_CACHE_PATH)) {
+      console.warn("[RSS] Using cached feed");
+
+      return {
+        rss: JSON.parse(fs.readFileSync(RSS_CACHE_PATH, "utf8")),
+        status: "cached",
+      };
+    }
+
+    return {
+      rss: {
+        title: "RSS unavailable",
+        text: "Unable to load feed at this time.",
+      },
+      status: "unavailable",
+    };
+  }
+}
 
 async function fetchRSS(feedUrl, rotate = true) {
   if (!feedUrl) {
@@ -87,4 +122,5 @@ async function fetchRSS(feedUrl, rotate = true) {
 module.exports = {
   fetchRSS,
   resetRssState,
+  fetchRSSWithCache,
 };

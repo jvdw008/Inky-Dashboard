@@ -1,5 +1,54 @@
 const fs = require("fs");
 const path = require("path");
+const JOPLIN_PATH = "/mnt/joplin";
+const CACHE_PATH = "/home/sensei/inky/server/state/todos-cache.json";
+
+function isJoplinAvailable() {
+  try {
+    fs.accessSync(JOPLIN_PATH, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getTodaysNoteFromBackupSafe(opts) {
+
+  if (!isJoplinAvailable()) {
+    console.warn("[Joplin] Mount unavailable, using cached todos");
+
+    return {
+      todos: readCache(),
+      status: "cached",
+    };
+  }
+
+  try {
+    const todos = getTodaysNoteFromBackup(opts);
+
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(todos, null, 2));
+
+    return {
+      todos,
+      status: "connected",
+    };
+
+  } catch (err) {
+    console.warn("[Joplin] Read failed, using cached todos:", err.code);
+
+    return {
+      todos: readCache(),
+      status: "cached",
+    };
+  }
+}
+
+function readCache() {
+  if (fs.existsSync(CACHE_PATH)) {
+    return JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
+  }
+  return [];
+}
 
 function getTodaysNoteFromBackup({ baseBackupDir }) {
   try {
@@ -53,4 +102,4 @@ function getTodaysNoteFromBackup({ baseBackupDir }) {
 
 }
 
-module.exports = { getTodaysNoteFromBackup };
+module.exports = { getTodaysNoteFromBackupSafe };
