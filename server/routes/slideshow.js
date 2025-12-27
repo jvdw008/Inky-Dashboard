@@ -1,7 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-const { refreshNow } = require("../services/scheduler");
+const { refreshNow, setLiveImage } = require("../services/scheduler");
 
 const router = express.Router();
 
@@ -9,15 +9,8 @@ const router = express.Router();
    Project paths
 ----------------------------- */
 
-// /home/sensei/inky
-const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
-
-// /home/sensei/inky/display/slideshow
-const SLIDESHOW_DIR = path.join(
-  PROJECT_ROOT,
-  "display",
-  "slideshow"
-);
+const paths = require(path.resolve(__dirname, "../config/paths"));
+const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
 /* ----------------------------
    List slideshow images
@@ -35,13 +28,34 @@ router.get("/", (req, res) => {
       .sort()
       .map(f => ({
         name: f,
-        url: `/slideshow/${f}`, // served by express.static
+        url: `/slideshow-files/${f}`,
       }));
 
     res.json(files);
   } catch (err) {
     console.error("[Slideshow] List error:", err);
     res.status(500).json({ error: "Failed to read slideshow images" });
+  }
+});
+
+/* -------------------------
+   Set LIVE image
+-------------------------- */
+
+router.post("/:filename/live", async (req, res) => {
+  const filename = req.params.filename;
+
+  // Security: block path traversal
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+    return res.status(400).json({ error: "Invalid filename" });
+  }
+
+  try {
+    setLiveImage(filename);
+    res.json({ status: "ok", file: filename });
+  } catch (err) {
+    console.error("[Slideshow] Set LIVE error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 

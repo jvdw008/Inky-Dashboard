@@ -11,9 +11,8 @@ const router = express.Router();
 /* ----------------------------
    Project paths
 ----------------------------- */
-
-// /home/sensei/inky
-const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
+const paths = require(path.resolve(__dirname, "../config/paths"));
+const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
 // /home/sensei/inky/display/slideshow
 const UPLOAD_DIR = path.join(PROJECT_ROOT, "display", "slideshow");

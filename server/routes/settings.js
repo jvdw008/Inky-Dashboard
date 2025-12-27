@@ -9,8 +9,8 @@ const { refreshNow } = require("../services/scheduler");
    Project paths
 ----------------------------- */
 
-// /home/sensei/inky
-const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
+const paths = require(path.resolve(__dirname, "../config/paths"));
+const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
 // /home/sensei/inky/server/.env
 const ENV_PATH = path.join(PROJECT_ROOT, "server", ".env");
@@ -97,13 +97,8 @@ router.post("/", async (req, res) => {
   if (mode === "rss" || mode === "slideshow") {
     writeMode(mode);
     console.log("[Settings] Display mode set to:", mode);
-
-    // Reset slideshow index when changing mode
-    if (mode === "slideshow") {
-      const { resetSlideIndex } = require("../services/scheduler");
-      resetSlideIndex();
-    }
   }
+
   /* --------------------
      Save RSS (only if provided)
   --------------------- */

@@ -11,6 +11,8 @@ const { renderHomepage } = require(
 
 let renderRequested = false;
 let isRendering = false;
+let forceNextSlide = false;
+let forcedImage = null;
 
 /* -----------------------------
    Scheduler state
@@ -21,20 +23,17 @@ let schedulerStatus = {
   lastSuccess: null,
   lastError: null,
   currentTitle: null,
+  currentRSS: null,
+  currentImage: null,
 };
 
 /* -----------------------------
    Project paths
 ------------------------------ */
+const paths = require(path.resolve(__dirname, "../config/paths"));
+const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
-// /home/sensei/inky
-const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
-
-// /home/sensei/inky/state/displayMode.json
 const MODE_PATH = path.resolve(__dirname, "../state/displayMode.json");
-
-// /home/sensei/inky/display/slideshow
-const SLIDESHOW_DIR = path.join(PROJECT_ROOT, "display", "slideshow");
 
 let slideIndex = 0;
 
@@ -65,13 +64,43 @@ let tickRef = null;
    Public helpers
 ------------------------------ */
 
-function refreshNow() {
+function refreshNow(options = {}) {
+  if (options.image) {
+    forcedImage = options.image;
+  }
+
+  forceNextSlide = true;
+
   if (tickRef) {
     console.log("[Scheduler] Immediate refresh requested");
     tickRef();
   } else {
     console.warn("[Scheduler] refreshNow called before scheduler started");
   }
+}
+
+function setLiveImage(filename) {
+  const files = fs
+    .readdirSync(SLIDESHOW_DIR)
+    .filter(f => f.toLowerCase().endsWith(".png"));
+
+  const idx = files.indexOf(filename);
+  if (idx === -1) throw new Error("File not found in slideshow");
+
+  // Set the forced image to be rendered immediately
+  forcedImage = filename;
+
+  // Sync slideIndex so next tick continues from this image
+  slideIndex = idx; // next tick uses this index
+
+  // Update scheduler status for portal
+  schedulerStatus.currentImage = filename;
+
+  console.log("[Scheduler] LIVE image set:", filename);
+
+  // Trigger immediate refresh without incrementing slideIndex twice
+  forceNextSlide = false; // prevent double increment
+  refreshNow();
 }
 
 /* -----------------------------
@@ -128,10 +157,23 @@ function startScheduler() {
           console.warn("[Scheduler] Slideshow mode but no images found");
           payload.rss = { title: "No images", text: "" };
         } else {
-          const file = files[slideIndex % files.length];
-          slideIndex++;
+	  if (forceNextSlide) {
+	      slideIndex++;
+	      forceNextSlide = false;
+	  }
+	  let file;
 
-          payload.image = path.join(SLIDESHOW_DIR, file);
+	  if (forcedImage && files.includes(forcedImage)) {
+	    file = forcedImage;
+	    forcedImage = null; // consume override
+	  } else {
+	    file = files[slideIndex % files.length];
+	    slideIndex++;
+	  }
+
+	  payload.image = path.join(SLIDESHOW_DIR, file);
+	  schedulerStatus.currentImage = file;
+
           payload.rss = null; // IMPORTANT: suppress RSS rendering
         }
 
@@ -149,6 +191,7 @@ function startScheduler() {
 
         payload.rss = rss;
         schedulerStatus.currentTitle = rss.title || null;
+        schedulerStatus.currentRSS = rss;
       }
 
       console.log("[Scheduler] Payload → EPD:", payload);
@@ -195,4 +238,5 @@ module.exports = {
   startScheduler,
   refreshNow,
   schedulerStatus,
+  setLiveImage,
 };

@@ -1,18 +1,23 @@
 const express = require("express");
 const router = express.Router();
-const { fetchRSS } = require("../services/rssService");
 
-router.get("/", async (req, res) => {
+const { schedulerStatus } = require("../services/scheduler");
+
+router.get("/", (req, res) => {
   try {
-    const url = req.query.url;
-    if (!url) return res.status(400).json({ error: "Missing url" });
+    if (!schedulerStatus.currentRSS) {
+      return res.json({
+        title: "Waiting for data…",
+        text: "The scheduler has not rendered RSS yet.",
+      });
+    }
 
-    const rss = await fetchRSS(url, false);
-    res.json(rss);
+    res.json(schedulerStatus.currentRSS);
   } catch (err) {
+    console.error("RSS preview error:", err);
     res.status(500).json({
       title: "Preview failed",
-      text: err.message,
+      text: "Unable to read scheduler state",
     });
   }
 });
