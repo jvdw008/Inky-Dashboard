@@ -11,14 +11,8 @@ const app = express();
    Project paths
 ----------------------------- */
 
-// /home/sensei/inky
-const PROJECT_ROOT = path.resolve(__dirname, "..");
-
-// /home/sensei/inky/display
-const DISPLAY_DIR = path.join(PROJECT_ROOT, "display");
-
-// /home/sensei/inky/display/slideshow
-const SLIDESHOW_DIR = path.join(DISPLAY_DIR, "slideshow");
+const paths = require(path.resolve(__dirname, "config", "paths"));
+const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
 /* ----------------------------
    Services
@@ -28,7 +22,7 @@ const { renderBootMessage } = require(
   path.join(DISPLAY_DIR, "display")
 );
 
-const { startScheduler, refreshNow } = require(
+const { startScheduler, refreshNow, schedulerStatus } = require(
   path.join(__dirname, "services", "scheduler")
 );
 
@@ -44,28 +38,34 @@ app.use(bodyParser.urlencoded({ extended: true }));
    Static files
 ----------------------------- */
 
-// Slideshow images (for thumbnails + preview)
-app.use("/slideshow", express.static(SLIDESHOW_DIR));
+// ✅ Slideshow images (THUMBNAILS + PREVIEW ONLY)
+// ❗️IMPORTANT: do NOT use /slideshow here
+app.use(
+  "/slideshow-files",
+  express.static(SLIDESHOW_DIR)
+);
 
 // Public UI
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ----------------------------
-   Routes
+   Routes (API)
 ----------------------------- */
 
 app.use("/status", require("./routes/status"));
 app.use("/rss-preview", require("./routes/rssPreview"));
 app.use("/settings", require("./routes/settings"));
 app.use("/upload", require("./routes/upload"));
-app.use("/slideshow-list", require("./routes/slideshow"));
+
+// ✅ Slideshow API (list + delete)
+app.use("/slideshow", require("./routes/slideshow"));
 
 /* ----------------------------
    Manual refresh trigger
 ----------------------------- */
 
-app.post("/refresh", async (req, res) => {
-  await refreshNow();
+app.post("/refresh", (req, res) => {
+  refreshNow({ image: schedulerStatus.currentImage || null});
   res.json({ ok: true });
 });
 

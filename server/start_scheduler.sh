@@ -1,11 +1,12 @@
 #!/bin/bash
-# File: /home/sensei/server/start_scheduler.sh
+# File: /home/sensei/inky/server/start_scheduler.sh
 
-# Navigate to project directory
-cd /home/sensei/inky/server || exit 1
+cd /home/sensei/inky/server
 
-# Load environment variables
-#export $(grep -v '^#' .env | xargs)
+# Load environment variables safely
+#if [ -f .env ]; then
+#  export $(grep -v '^#' .env | xargs)
+#fi
 
-# Start Node scheduler
-/usr/bin/node index.js
+# Start Node using PATH resolution
+exec /usr/local/node18/bin/node index.js
