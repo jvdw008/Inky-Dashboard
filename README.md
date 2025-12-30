@@ -38,7 +38,7 @@ It's built to be **useful first**, not generic - and assumes you're comfortable 
 ---
 ### Software
 - **Raspberry Pi OS** (Lite recommended)
-- **Node.js 18.x LTS **(Node 20 may work, but 18 is known-good)
+- **Node.js 18.x LTS ** (Node 20 may work, but 18 is known-good)
 - **npm** (comes with Node.js)
 - **Git**
 - Optional but recommended:<br>
@@ -167,7 +167,7 @@ This includes:
 
 1. Clone the repository<br>
 ```
-git clone https://github.com/YOUR_USERNAME/inky.git
+git clone https://github.com/jvdw008/inky.git
 cd inky
 ```
 2. Install dependancies<br>
