@@ -1,7 +1,10 @@
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+const dns = require("dns").promises;
+const { execSync } = require("child_process");
 
-const { fetchRSS, fetchRSSWithCache } = require("./rssService");
+const { fetchRSSWithCache } = require("./rssService");
 const { getTodaysNoteFromBackupSafe } = require("./joplinService");
 
 // IMPORTANT: absolute, resolved path to display module
@@ -9,16 +12,16 @@ const { renderHomepage } = require(
   path.resolve(__dirname, "..", "..", "display", "display")
 );
 
-const dns = require("dns").promises;
+/* -----------------------------
+   Scheduler state
+------------------------------ */
 
 let renderRequested = false;
 let isRendering = false;
 let forceNextSlide = false;
 let forcedImage = null;
-
-/* -----------------------------
-   Scheduler state
------------------------------- */
+let schedulerTimer = null;
+let networkFailCount = 0;
 
 let schedulerStatus = {
   lastRun: null,
@@ -29,37 +32,51 @@ let schedulerStatus = {
   currentImage: null,
 
   joplin: {
-    status: "unknown", // connected | cached | unavailable
+    status: "unknown",
     lastUpdate: null,
   },
 
   network: {
-    status: "unknown", // online | offline
+    status: "unknown",
     lastCheck: null,
   },
 
   rss: {
-    status: "unknown", // live | cached | unavailable
+    status: "unknown",
     lastUpdate: null,
   },
 };
 
 /* -----------------------------
-   Project paths
+   Paths & config
 ------------------------------ */
+
 const paths = require(path.resolve(__dirname, "../config/paths"));
-const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
+const { SLIDESHOW_DIR } = paths;
 
 const MODE_PATH = path.resolve(__dirname, "../state/displayMode.json");
+const SCHEDULER_PATH = path.resolve(__dirname, "../state/scheduler.json");
+
+const MIN_INTERVAL = 5;
+const MAX_INTERVAL = 180;
 
 let slideIndex = 0;
+let tickRef = null;
 
 /* -----------------------------
-   Mode helpers
+   Helpers
 ------------------------------ */
 
-function resetSlideIndex() {
-  slideIndex = 0;
+function getLocalIPv4() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "offline";
 }
 
 function readMode() {
@@ -71,37 +88,82 @@ function readMode() {
 }
 
 /* -----------------------------
-   Tick reference (IMPORTANT)
+   Scheduler interval
 ------------------------------ */
 
-// Holds reference to the live tick() function
-let tickRef = null;
+function readSchedulerInterval() {
+  try {
+    const { intervalMinutes } = JSON.parse(
+      fs.readFileSync(SCHEDULER_PATH, "utf8")
+    );
+    return Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, intervalMinutes));
+  } catch {
+    return 5;
+  }
+}
+
+function writeSchedulerInterval(intervalMinutes) {
+  const clamped = Math.min(
+    MAX_INTERVAL,
+    Math.max(MIN_INTERVAL, intervalMinutes)
+  );
+
+  fs.writeFileSync(
+    SCHEDULER_PATH,
+    JSON.stringify({ intervalMinutes: clamped }, null, 2)
+  );
+
+  return clamped;
+}
+
+function updateSchedulerInterval(minutes) {
+  writeSchedulerInterval(minutes);
+
+  if (tickRef) {
+    startInterval(tickRef);
+  }
+}
+
+function startInterval(tick) {
+  const minutes = readSchedulerInterval();
+
+  console.log(`[Scheduler] Interval set to ${minutes} minutes`);
+
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+
+  schedulerTimer = setInterval(() => {
+    tick();
+  }, minutes * 60 * 1000);
+}
+
+/* -----------------------------
+   Network check (ROBUST)
+------------------------------ */
+
+async function hasNetwork() {
+  try {
+    // DNS is enough; ping is optional and unreliable on some networks
+    await dns.lookup("google.com");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /* -----------------------------
    Public helpers
 ------------------------------ */
 
-async function checkNetwork() {
-  try {
-    await dns.lookup("google.com");
-    return "online";
-  } catch {
-    return "offline";
-  }
-}
-
 function refreshNow(options = {}) {
-  if (options.image) {
-    forcedImage = options.image;
-  }
-
+  if (options.image) forcedImage = options.image;
   forceNextSlide = true;
 
   if (tickRef) {
     console.log("[Scheduler] Immediate refresh requested");
     tickRef();
-  } else {
-    console.warn("[Scheduler] refreshNow called before scheduler started");
   }
 }
 
@@ -111,21 +173,13 @@ function setLiveImage(filename) {
     .filter(f => f.toLowerCase().endsWith(".png"));
 
   const idx = files.indexOf(filename);
-  if (idx === -1) throw new Error("File not found in slideshow");
+  if (idx === -1) throw new Error("File not found");
 
-  // Set the forced image to be rendered immediately
   forcedImage = filename;
-
-  // Sync slideIndex so next tick continues from this image
-  slideIndex = idx; // next tick uses this index
-
-  // Update scheduler status for portal
+  slideIndex = idx;
   schedulerStatus.currentImage = filename;
 
   console.log("[Scheduler] LIVE image set:", filename);
-
-  // Trigger immediate refresh without incrementing slideIndex twice
-  forceNextSlide = false; // prevent double increment
   refreshNow();
 }
 
@@ -134,143 +188,113 @@ function setLiveImage(filename) {
 ------------------------------ */
 
 function startScheduler() {
-  console.log("Scheduler started. Updating every 5 minutes...");
+  console.log("Scheduler started");
 
-  async function tick() {
-    // Prevent concurrent GPIO access
-    if (isRendering) {
-      renderRequested = true;
-      return;
+async function tick() {
+  if (isRendering) {
+    renderRequested = true;
+    console.warn("[Scheduler] Tick skipped (already rendering)");
+    return;
+  }
+
+  isRendering = true;
+  schedulerStatus.lastRun = new Date();
+
+  try {
+    const online = await hasNetwork();
+
+    schedulerStatus.network = {
+      status: online ? "online" : "offline",
+      lastCheck: new Date(),
+    };
+
+    if (!online) {
+      networkFailCount++;
+      console.warn("[Scheduler] Network offline – using cached data");
+
+      if (networkFailCount >= 10) {
+        console.error("[Scheduler] Network dead too long, rebooting");
+        execSync("sudo /sbin/reboot");
+      }
+    } else {
+      networkFailCount = 0;
     }
 
-    isRendering = true;
-    renderRequested = false;
-    schedulerStatus.lastRun = new Date();
+    require("dotenv").config({ override: true });
 
-    try {
-      require("dotenv").config({ override: true });
+    const mode = readMode();
 
-      const mode = readMode();
-      console.log("[Scheduler] Initial mode:", mode);
+    const joplinResult = getTodaysNoteFromBackupSafe({
+      baseBackupDir: "/mnt/joplin",
+    });
 
-      const joplinResult = getTodaysNoteFromBackupSafe({
-        baseBackupDir: "/mnt/joplin",
-      });
+    schedulerStatus.joplin = {
+      status: joplinResult.status,
+      lastUpdate: new Date(),
+    };
 
-      const networkStatus = await checkNetwork();
-      schedulerStatus.network = {
-        status: networkStatus,
-        lastCheck: new Date(),
-      };
+    const payload = {
+      hostname: getLocalIPv4(),
+      time: new Date().toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      todos: joplinResult.todos,
+    };
 
-      const todos = joplinResult.todos;
-      schedulerStatus.joplin = {
-        status: joplinResult.status,
+    if (mode === "slideshow") {
+      const files = fs
+        .readdirSync(SLIDESHOW_DIR)
+        .filter(f => f.endsWith(".png"))
+        .sort();
+
+      if (files.length) {
+        const file =
+          forcedImage && files.includes(forcedImage)
+            ? forcedImage
+            : files[slideIndex++ % files.length];
+
+        forcedImage = null;
+        payload.image = path.join(SLIDESHOW_DIR, file);
+        schedulerStatus.currentImage = file;
+      }
+
+      schedulerStatus.currentTitle = "Slideshow";
+
+    } else {
+      const rssResult = await fetchRSSWithCache(process.env.RSS_FEED_URL);
+
+      payload.rss = rssResult.rss;
+      schedulerStatus.rss = {
+        status: rssResult.status,
         lastUpdate: new Date(),
       };
 
-      const payload = {
-        hostname: process.env.HOSTNAME || "inky.local",
-        time: new Date().toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        todos,
-      };
-
-      /* -----------------------------
-         SLIDESHOW MODE
-      ------------------------------ */
-      if (mode === "slideshow") {
-        console.log("[Scheduler] Slideshow mode active");
-
-        const files = fs
-          .readdirSync(SLIDESHOW_DIR, { withFileTypes: true })
-          .filter(f => f.isFile() && f.name.endsWith(".png"))
-          .map(f => f.name)
-          .sort();
-
-        if (files.length === 0) {
-          console.warn("[Scheduler] Slideshow mode but no images found");
-          payload.rss = { title: "No images", text: "" };
-        } else {
-	  if (forceNextSlide) {
-	      slideIndex++;
-	      forceNextSlide = false;
-	  }
-	  let file;
-
-	  if (forcedImage && files.includes(forcedImage)) {
-	    file = forcedImage;
-	    forcedImage = null; // consume override
-	  } else {
-	    file = files[slideIndex % files.length];
-	    slideIndex++;
-	  }
-
-	  payload.image = path.join(SLIDESHOW_DIR, file);
-	  schedulerStatus.currentImage = file;
-
-          payload.rss = null; // IMPORTANT: suppress RSS rendering
-        }
-
-        schedulerStatus.currentTitle = "Slideshow";
-
-      /* -----------------------------
-         RSS MODE (default)
-      ------------------------------ */
-      } else {
-        const rssUrl = process.env.RSS_FEED_URL;
-        const rssResult = await fetchRSSWithCache(rssUrl);
-
-        payload.rss = rssResult.rss;
-
-        schedulerStatus.rss = {
-          status: rssResult.status,
-          lastUpdate: new Date(),
-        };
-
-        schedulerStatus.currentTitle = rssResult.rss.title || null;
-        schedulerStatus.currentRSS = rssResult.rss;
-
-      }
-
-      console.log("[Scheduler] Payload → EPD:", payload);
-
-      await renderHomepage(payload);
-
-      schedulerStatus.lastSuccess = new Date();
-      schedulerStatus.lastError = null;
-
-      console.log(
-        "[Scheduler] Homepage updated at",
-        new Date().toLocaleTimeString()
-      );
-
-    } catch (err) {
-      console.error("[Scheduler] Tick error:", err);
-      schedulerStatus.lastError = err.message;
-
-    } finally {
-      isRendering = false;
-
-      // Run exactly once more if requested mid-render
-      if (renderRequested) {
-        setTimeout(tick, 250);
-      }
+      schedulerStatus.currentTitle = rssResult.rss?.title || null;
     }
+
+    await renderHomepage(payload);
+
+    schedulerStatus.lastSuccess = new Date();
+    schedulerStatus.lastError = null;
+
+    console.log("[Scheduler] Homepage updated");
+
+  } catch (err) {
+    schedulerStatus.lastError = err.message;
+    console.error("[Scheduler] Tick error:", err);
+
+  } finally {
+    isRendering = false;
+    //if (renderRequested) setTimeout(tick, 250);
   }
+}
 
-  // Store tick reference for refreshNow()
   tickRef = tick;
-
-  // Run immediately on boot
   tick();
-
-  // Schedule every 5 minutes
-  setInterval(tick, 5 * 60 * 1000);
+  startInterval(tickRef);
 }
 
 /* -----------------------------
@@ -282,4 +306,6 @@ module.exports = {
   refreshNow,
   schedulerStatus,
   setLiveImage,
+  updateSchedulerInterval,
+  readSchedulerInterval,
 };

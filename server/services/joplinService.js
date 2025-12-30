@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const JOPLIN_PATH = "/mnt/joplin";
-const CACHE_PATH = "/home/sensei/inky/server/state/todos-cache.json";
+const CACHE_PATH = path.resolve(__dirname, "../state/todos-cache.json");
 
 function isJoplinAvailable() {
   try {

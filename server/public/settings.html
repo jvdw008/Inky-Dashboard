@@ -36,6 +36,7 @@
   button {
     padding: 8px 16px;
     margin-top: 10px;
+    cursor: pointer;
   }
 
   .status {
@@ -135,6 +136,13 @@
   width: 60px;
   display: inline-block;
   margin-bottom: 10px;
+}
+
+.danger {
+  background-color: red;
+  color: white;
+  border-radius: 5px;
+  border: 2px solid red;
 }
 
 /* -----------------------------
@@ -239,8 +247,23 @@
       <button onclick="upload()">Upload</button>
     </div>
 
+    <div class="row">
+    <label>
+      Refresh interval:
+      <strong><span id="intervalLabel">5</span> min</strong>
+    </label>
+    <input
+      type="range"
+      min="5"
+      max="180"
+      step="5"
+      id="interval"
+    />
+    </div>
+
     <button onclick="save()">Save & Refresh</button>
     <button onclick="refreshDisplay()">Refresh display now</button>
+    <button onclick="rebootInky()" class="danger">🔄 Reboot Inky</button>
 
   </div>
 
@@ -301,6 +324,16 @@ async function load() {
     if (radio) radio.checked = true;
   }
 
+  // Set refresh interval slider from settings
+  if (typeof settings.intervalMinutes === "number") {
+    const slider = document.getElementById("interval");
+    const label = document.getElementById("intervalLabel");
+
+    slider.value = settings.intervalMinutes;
+    label.textContent = settings.intervalMinutes;
+  }
+
+
   document
     .querySelectorAll("input[name=mode]")
     .forEach(r =>
@@ -320,6 +353,7 @@ async function load() {
 async function save() {
   const rssUrl = document.getElementById("rssUrl").value;
   const modeInput = document.querySelector("input[name=mode]:checked");
+  const interval = Number(document.getElementById("interval").value);
 
   if (!modeInput) {
     alert("Please select a display mode");
@@ -331,7 +365,8 @@ async function save() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       rssUrl,
-      mode: modeInput.value
+      mode: modeInput.value,
+      intervalMinutes: interval
     })
   });
 
@@ -353,14 +388,23 @@ async function upload() {
   fd.append("image", file);
 
   try {
-    await fetch("/upload", { method: "POST", body: fd });
+    const res = await fetch("/upload", {
+      method: "POST",
+      body: fd
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || "Upload failed");
+    }
 
     status.innerText = "Upload complete ✔";
     setTimeout(() => (status.style.display = "none"), 1200);
-
     loadSlideshowThumbnails();
-  } catch {
-    status.innerText = "Upload failed ✕";
+
+  } catch (err) {
+    status.innerText = err.message;
   }
 }
 
@@ -494,6 +538,32 @@ function updateSlideshowVisibility() {
 
   if (mode === "slideshow") {
     loadSlideshowThumbnails();
+  }
+}
+
+/* --------------------------
+   Interval timer
+---------------------------*/
+const slider = document.getElementById("interval");
+const label = document.getElementById("intervalLabel");
+
+slider.oninput = () => {
+  label.textContent = slider.value;
+};
+
+/* -------------------------
+   Reboot Ink
+--------------------------*/
+async function rebootInky() {
+  if (!confirm("Reboot Inky now?\nThe display will go offline briefly.")) {
+    return;
+  }
+
+  try {
+    await fetch("/system/reboot", { method: "POST" });
+    alert("Inky is rebooting…");
+  } catch (err) {
+    alert("Failed to reboot Inky");
   }
 }
 

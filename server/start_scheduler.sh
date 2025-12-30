@@ -1,5 +1,5 @@
 #!/bin/bash
-# File: /home/sensei/inky/server/start_scheduler.sh
+# File: /home/USERNAME/inky/server/start_scheduler.sh
 
 cd /home/sensei/inky/server
 

@@ -3,18 +3,17 @@ const multer = require("multer");
 const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");
-
 const { refreshNow } = require("../services/scheduler");
 
 const router = express.Router();
-
+const MAX_UPLOAD_MB = 10;
 /* ----------------------------
    Project paths
 ----------------------------- */
 const paths = require(path.resolve(__dirname, "../config/paths"));
 const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
-// /home/sensei/inky/display/slideshow
+// /home/USERNAME/inky/display/slideshow
 const UPLOAD_DIR = path.join(PROJECT_ROOT, "display", "slideshow");
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -26,7 +25,7 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 8 * 1024 * 1024, // 8MB safety limit
+    fileSize: MAX_UPLOAD_MB * 1024 * 1024, // safety limit
   },
 });
 
@@ -34,44 +33,67 @@ const upload = multer({
    Upload route
 ----------------------------- */
 
-router.post("/", upload.single("image"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image uploaded" });
+/* ----------------------------
+   Upload route (SAFE)
+----------------------------- */
+
+router.post("/", (req, res) => {
+  upload.single("image")(req, res, async err => {
+    // 🔒 Multer-specific errors (file too large, etc.)
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({
+          error: `Image too large. Max size is ${MAX_UPLOAD_MB}MB.`,
+        });
+      }
+
+      return res.status(400).json({ error: err.message });
     }
 
-    // Basic MIME check
-    if (!req.file.mimetype.startsWith("image/")) {
-      return res.status(400).json({ error: "Invalid file type" });
+    // ❌ Other errors
+    if (err) {
+      console.error("[Upload] Multer error:", err);
+      return res.status(500).json({ error: "Upload failed" });
     }
 
-    const filename = `img_${Date.now()}.png`;
-    const outPath = path.join(UPLOAD_DIR, filename);
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image uploaded" });
+      }
 
-    // Store a CLEAN grayscale image
-    // (dithering happens later in epd_render.py)
-    await sharp(req.file.buffer)
-      .resize(400, 400, {
-        fit: "contain",
-        background: "white",
-      })
-      .grayscale()
-      .png()
-      .toFile(outPath);
+      // Basic MIME check
+      if (!req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({ error: "Invalid file type" });
+      }
 
-    console.log("[Upload] Saved slideshow image:", filename);
+      const filename = `img_${Date.now()}.png`;
+      const outPath = path.join(UPLOAD_DIR, filename);
 
-    // Force immediate display refresh
-    refreshNow();
+      // Store a CLEAN grayscale image
+      await sharp(req.file.buffer)
+        .rotate()
+        .resize(400, 400, {
+          fit: "contain",
+          background: "white",
+        })
+        .grayscale()
+        .png()
+        .toFile(outPath);
 
-    res.json({
-      status: "ok",
-      file: filename,
-    });
-  } catch (err) {
-    console.error("[Upload] Failed:", err);
-    res.status(500).json({ error: err.message });
-  }
+      console.log("[Upload] Saved slideshow image:", filename);
+
+      // Force immediate display refresh
+      refreshNow();
+
+      res.json({
+        status: "ok",
+        file: filename,
+      });
+    } catch (err) {
+      console.error("[Upload] Processing failed:", err);
+      res.status(500).json({ error: "Image processing failed" });
+    }
+  });
 });
 
 module.exports = router;
