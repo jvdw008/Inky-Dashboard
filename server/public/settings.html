@@ -399,7 +399,7 @@ async function upload() {
       throw new Error(data.error || "Upload failed");
     }
 
-    status.innerText = "Upload complete ✔";
+    status.innerText = "Upload complete";
     setTimeout(() => (status.style.display = "none"), 1200);
     loadSlideshowThumbnails();
 
