@@ -53,8 +53,7 @@ app.use("/system", require("./routes/system"));
    Static files
 ----------------------------- */
 
-// ✅ Slideshow images (THUMBNAILS + PREVIEW ONLY)
-// ❗️IMPORTANT: do NOT use /slideshow here
+// Slideshow images (THUMBNAILS + PREVIEW ONLY)
 app.use(
   "/slideshow-files",
   express.static(SLIDESHOW_DIR)
@@ -72,7 +71,7 @@ app.use("/rss-preview", require("./routes/rssPreview"));
 app.use("/settings", require("./routes/settings"));
 app.use("/upload", require("./routes/upload"));
 
-// ✅ Slideshow API (list + delete)
+// Slideshow API (list + delete)
 app.use("/slideshow", require("./routes/slideshow"));
 
 /* ----------------------------
