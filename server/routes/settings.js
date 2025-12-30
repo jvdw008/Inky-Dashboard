@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 
-const { refreshNow } = require("../services/scheduler");
+const { refreshNow, readSchedulerInterval, updateSchedulerInterval } = require("../services/scheduler");
 
 /* ----------------------------
    Project paths
@@ -12,10 +12,10 @@ const { refreshNow } = require("../services/scheduler");
 const paths = require(path.resolve(__dirname, "../config/paths"));
 const { PROJECT_ROOT, SLIDESHOW_DIR, DISPLAY_DIR } = paths;
 
-// /home/sensei/inky/server/.env
+// /home/USERNAME/inky/server/.env
 const ENV_PATH = path.join(PROJECT_ROOT, "server", ".env");
 
-// /home/sensei/inky/server/state/displayMode.json
+// /home/USERNAME/inky/server/state/displayMode.json
 const MODE_PATH = path.join(
   PROJECT_ROOT,
   "server",
@@ -81,6 +81,7 @@ router.get("/", (req, res) => {
   res.json({
     rssUrl: env.RSS_FEED_URL || "",
     mode: readMode(),
+    intervalMinutes: readSchedulerInterval(),
   });
 });
 
@@ -119,6 +120,15 @@ router.post("/", async (req, res) => {
     if (rssChanged) {
       const { resetRssState } = require("../services/rssService");
       resetRssState();
+    }
+  }
+
+  if (req.body.intervalMinutes !== undefined) {
+    const minutes = Number(req.body.intervalMinutes);
+
+    if (Number.isFinite(minutes)) {
+      updateSchedulerInterval(minutes);
+      console.log("[Settings] Scheduler interval updated to", minutes, "minutes");
     }
   }
 
