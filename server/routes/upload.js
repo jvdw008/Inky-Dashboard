@@ -33,13 +33,9 @@ const upload = multer({
    Upload route
 ----------------------------- */
 
-/* ----------------------------
-   Upload route (SAFE)
------------------------------ */
-
 router.post("/", (req, res) => {
   upload.single("image")(req, res, async err => {
-    // 🔒 Multer-specific errors (file too large, etc.)
+    // Multer-specific errors (file too large, etc.)
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
         return res.status(413).json({
@@ -50,7 +46,7 @@ router.post("/", (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    // ❌ Other errors
+    // Other errors
     if (err) {
       console.error("[Upload] Multer error:", err);
       return res.status(500).json({ error: "Upload failed" });
