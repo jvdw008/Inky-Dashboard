@@ -212,7 +212,7 @@ async function tick() {
       networkFailCount++;
       console.warn("[Scheduler] Network offline – using cached data");
 
-      if (networkFailCount >= 10) {
+      if (networkFailCount >= 3) {
         console.error("[Scheduler] Network dead too long, rebooting");
         execSync("sudo /sbin/reboot");
       }
